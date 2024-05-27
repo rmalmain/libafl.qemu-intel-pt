@@ -22,6 +22,7 @@
 #include "sysemu/cpus.h"
 #include "qemu/guest-random.h"
 #include "qapi/error.h"
+#include "target/i386/intel_pt.h"
 
 #include <linux/kvm.h>
 #include "kvm-cpus.h"
@@ -41,6 +42,9 @@ static void *kvm_vcpu_thread_fn(void *arg)
     r = kvm_init_vcpu(cpu, &error_fatal);
     kvm_init_cpu_signals(cpu);
 
+    // Marco: We can hook here, take the cpu->thread_id and use it to start PT
+    perf_intel_pt_open(cpu->thread_id);
+
     /* signal CPU creation */
     cpu_thread_signal_created(cpu);
     qemu_guest_random_seed_thread_part2(cpu->random_seed);
@@ -54,6 +58,9 @@ static void *kvm_vcpu_thread_fn(void *arg)
         }
         qemu_wait_io_event(cpu);
     } while (!cpu->unplug || cpu_can_run(cpu));
+
+    // Marco: Hook here to stop PT ?
+    perf_intel_pt_close();
 
     kvm_destroy_vcpu(cpu);
     cpu_thread_signal_destroyed(cpu);
