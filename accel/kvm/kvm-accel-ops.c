@@ -59,7 +59,7 @@ static void *kvm_vcpu_thread_fn(void *arg)
         qemu_wait_io_event(cpu);
     } while (!cpu->unplug || cpu_can_run(cpu));
 
-    // Marco: Hook here to stop PT ?
+    // Marco: Looks like this doesn't get called on vm shutdown
     perf_intel_pt_close();
 
     kvm_destroy_vcpu(cpu);

@@ -15,6 +15,7 @@
 #include <sys/syscall.h>
 
 #include "intel_pt.h"
+#include "qemu/atomic.h"
 #include "qemu/osdep.h"
 #include "qemu/error-report.h"
 
@@ -24,7 +25,22 @@
 #define PAGE_SIZE 4096
 
 #define PT_EVENT_TYPE_PATH "/sys/bus/event_source/devices/intel_pt/type"
-#define PT_CONFIG_NORETCOMP BIT(11) // aka DisRETC in Intel SDM, TODO: consider reading /sys/bus/event_source/devices/*/format/
+// TODO: consider reading /sys/bus/event_source/devices/intel_pt/format/
+// TODO: Tune PSBFreq
+/* Enable Cycle Count packets, aka CYCEn in Intel SDM */
+#define PT_CONFIG_CYC BIT(1)
+/* Enable Power Event packets, aka PwrEvtEn in Intel SDM */
+#define PT_CONFIG_PWR_EVT BIT(4)
+/* Enable Mini Time Counter packets, aka MTCEn in INtel SDM */
+#define PT_CONFIG_MTC BIT(9)
+/* Enable Time-Stamp Counter packets, aka TSCEn in Intel SDM */
+#define PT_CONFIG_TSC BIT(10)
+/* Disable call return address compression, aka DisRETC in Intel SDM */
+#define PT_CONFIG_NORETCOMP BIT(11)
+/* Enable PTWRITE packets, aka PTWEn in Intel SDM */
+#define PT_CONFIG_PTW BIT(12)
+/* Enable Change Of Flow instr. packets, aka BranchEn in Intel SDM */
+#define PT_CONFIG_BRANCH BIT(13)
 
 /* should be 1+2^n pages */
 #define PERF_BUFFER_SIZE (1 + (1 << 7)) * PAGE_SIZE
@@ -32,10 +48,11 @@
 #define PERF_AUX_BUFFER_SIZE 4096 * PAGE_SIZE
 
 // TODO multiple threads
+static struct perf_event_attr pe;
 static int perf_fd;
 static void *perf_buff;
 static void *perf_aux_buf;
-static struct perf_event_attr pe;
+static struct perf_event_mmap_page *pc;
 
 static inline int perf_event_open(struct perf_event_attr *attr,
                                   pid_t pid, int cpu, int group_fd, unsigned long flags)
@@ -76,28 +93,31 @@ static void intel_pt_perf_event_attr_init(void)
 
     pe.type = intel_pt_perf_type();
     pe.size = sizeof(struct perf_event_attr);
-    pe.config = PT_CONFIG_NORETCOMP;
+    /* Enabled features */
+    pe.config |= PT_CONFIG_NORETCOMP; //| PT_CONFIG_BRANCH;
+    /* Not enabled features */
+    // pe.config &= ~(PT_CONFIG_CYC | PT_CONFIG_PWR_EVT | PT_CONFIG_MTC | PT_CONFIG_TSC | PT_CONFIG_PTW);
 }
 
 int perf_intel_pt_open(int thread_id)
 {
     int ret = 0;
 
-    // TODO ensure that the CPU supports Intel PT and all features we need somewhere
+    // TODO ensure that the CPU supports Intel PT and all features we need somewhere?
 
     if (!pe.size)
     {
+        /* The same event_attr can be used to setup multiple threads, init just once */
         intel_pt_perf_event_attr_init();
     }
 
-    perf_fd = perf_event_open(&pe, (pid_t)thread_id, 0, -1, 0);
+    perf_fd = perf_event_open(&pe, (pid_t)thread_id, -1, -1, PERF_FLAG_FD_CLOEXEC);
     if (perf_fd < 0)
     {
         error_report("IntelPT: Failed to open perf event");
         goto fail;
     }
 
-    // TODO move these structures to a global state
     perf_buff = mmap(NULL, PERF_BUFFER_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, perf_fd, 0);
     if (perf_buff == MAP_FAILED)
     {
@@ -106,10 +126,11 @@ int perf_intel_pt_open(int thread_id)
     }
 
     // the first page is a metadata page
-    struct perf_event_mmap_page *pc = (struct perf_event_mmap_page *)perf_buff;
+    pc = (struct perf_event_mmap_page *)perf_buff;
     pc->aux_offset = next_page_aligned_addr(pc->data_offset + pc->data_size);
     pc->aux_size = PERF_AUX_BUFFER_SIZE;
 
+    /* PROT_WRITE sets PT to stop when the buffer is full */
     perf_aux_buf = mmap(NULL, pc->aux_size, PROT_READ | PROT_WRITE,
                         MAP_SHARED, perf_fd,
                         pc->aux_offset);
@@ -124,27 +145,58 @@ int perf_intel_pt_open(int thread_id)
 fail:
     error_report("errno: %d", errno);
     perf_intel_pt_close();
-    exit(1);
     return ret;
+}
+
+void perf_intel_pt_log(void)
+{
+    if (!pc)
+    {
+        return;
+    }
+
+    FILE *f;
+
+    f = fopen("./ipt_raw_trace", "a");
+    if (!f)
+    {
+        error_report("IntelPT: Failed to open log file");
+        return;
+    }
+
+    // TODO possible wraparound?
+    uint64_t head = pc->aux_head;
+    uint64_t tail = pc->aux_tail;
+    smp_rmb();
+
+    fwrite(perf_aux_buf + tail, 1, head - tail, f);
+
+    pc->aux_tail = head;
 }
 
 void perf_intel_pt_close(void)
 {
-    if (perf_aux_buf > 0)
+    if (perf_aux_buf != NULL)
     {
         munmap(perf_aux_buf, PERF_AUX_BUFFER_SIZE);
+        perf_aux_buf = NULL;
     }
 
-    if (perf_buff > 0)
+    pc = NULL;
+    if (perf_buff != NULL)
     {
         munmap(perf_buff, PERF_BUFFER_SIZE);
+        perf_buff = NULL;
     }
 
-    if (perf_fd > 0)
+    if (perf_fd >= 0)
     {
         close(perf_fd);
+        perf_fd = -1;
     }
 }
+
+// TODO better understand sudo/capabilities requirements
 
 // In case we need to increase locked memory
 
@@ -165,3 +217,6 @@ void perf_intel_pt_close(void)
 //     perror("setrlimit");
 //     return 1;
 // }
+
+// TODO: consider that there are some errata in Intel PT
+// libipt/src/pt_config.c pt_cpu_errata

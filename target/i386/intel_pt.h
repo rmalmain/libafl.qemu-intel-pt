@@ -14,5 +14,6 @@
 
 int perf_intel_pt_open(int thread_id);
 void perf_intel_pt_close(void);
+void perf_intel_pt_log(void);
 
 #endif /* INTEL_PT_H */

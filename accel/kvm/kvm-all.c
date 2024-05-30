@@ -49,6 +49,8 @@
 #include "sysemu/dirtylimit.h"
 #include "qemu/range.h"
 
+#include "target/i386/intel_pt.h"
+
 #include "hw/boards.h"
 #include "sysemu/stats.h"
 
@@ -2825,6 +2827,8 @@ int kvm_cpu_exec(CPUState *cpu)
     struct kvm_run *run = cpu->kvm_run;
     int ret, run_ret;
 
+    // Marco: maybe this trace thing is the cleanest place to put PT stuff?
+    // investigate what it is
     trace_kvm_cpu_exec();
 
     if (kvm_arch_process_async_events(cpu)) {
@@ -2836,6 +2840,7 @@ int kvm_cpu_exec(CPUState *cpu)
     cpu_exec_start(cpu);
 
     do {
+        perf_intel_pt_log();
         MemTxAttrs attrs;
 
         if (cpu->vcpu_dirty) {
