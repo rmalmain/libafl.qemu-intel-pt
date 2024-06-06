@@ -2992,6 +2992,8 @@ int kvm_cpu_exec(CPUState *cpu)
         }
     } while (ret == 0);
 
+    perf_intel_pt_log();
+
     cpu_exec_end(cpu);
     bql_lock();
 

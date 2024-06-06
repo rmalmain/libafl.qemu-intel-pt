@@ -13,6 +13,7 @@
 #include <stdint.h>
 #include <linux/perf_event.h>
 #include <sys/syscall.h>
+#include <sys/ioctl.h>
 
 #include "intel_pt.h"
 #include "qemu/atomic.h"
@@ -27,6 +28,9 @@
 #define PT_EVENT_TYPE_PATH "/sys/bus/event_source/devices/intel_pt/type"
 // TODO: consider reading /sys/bus/event_source/devices/intel_pt/format/
 // TODO: Tune PSBFreq
+// TODO: multiple threads
+// TODO: enable/disable PT on vm enter/exit
+// TODO: consider RIP addresses: Intel SDM 33.3.1.1
 /* Enable Cycle Count packets, aka CYCEn in Intel SDM */
 #define PT_CONFIG_CYC BIT(1)
 /* Enable Power Event packets, aka PwrEvtEn in Intel SDM */
@@ -42,12 +46,15 @@
 /* Enable Change Of Flow instr. packets, aka BranchEn in Intel SDM */
 #define PT_CONFIG_BRANCH BIT(13)
 
-/* should be 1+2^n pages */
 #define PERF_BUFFER_SIZE (1 + (1 << 7)) * PAGE_SIZE
-/* must be page aligned and must be a power of two */
-#define PERF_AUX_BUFFER_SIZE 4096 * PAGE_SIZE
+_Static_assert(((PERF_BUFFER_SIZE - PAGE_SIZE) & (PERF_BUFFER_SIZE - PAGE_SIZE - 1)) == 0,
+               "PERF_BUFFER_SIZE should be 1+2^n pages");
+#define PERF_AUX_BUFFER_SIZE 64 * 1024 * 1024
+_Static_assert((PERF_AUX_BUFFER_SIZE % PAGE_SIZE) == 0,
+               "PERF_AUX_BUFFER_SIZE must be page aligned");
+_Static_assert((PERF_AUX_BUFFER_SIZE & (PERF_AUX_BUFFER_SIZE - 1)) == 0,
+               "PERF_AUX_BUFFER_SIZE must be a power of two");
 
-// TODO multiple threads
 static struct perf_event_attr pe;
 static int perf_fd;
 static void *perf_buff;
@@ -87,16 +94,20 @@ static int64_t intel_pt_perf_type(void)
     return perf_type;
 }
 
-static void intel_pt_perf_event_attr_init(void)
+static void perf_event_attr_init(void)
 {
     memset(&pe, 0, sizeof(pe));
 
     pe.type = intel_pt_perf_type();
     pe.size = sizeof(struct perf_event_attr);
-    /* Enabled features */
-    pe.config |= PT_CONFIG_NORETCOMP; //| PT_CONFIG_BRANCH;
-    /* Not enabled features */
-    // pe.config &= ~(PT_CONFIG_CYC | PT_CONFIG_PWR_EVT | PT_CONFIG_MTC | PT_CONFIG_TSC | PT_CONFIG_PTW);
+    pe.disabled = 1;
+    /* Enabled features, PT_CONFIG_BRANCH is on by default */
+    pe.config |= PT_CONFIG_NORETCOMP;
+}
+
+static int set_ip_filter(void) {
+    const char *argp = "filter 30298/3584"; //0x7600-0x8400
+    return ioctl(perf_fd, PERF_EVENT_IOC_SET_FILTER, argp);
 }
 
 int perf_intel_pt_open(int thread_id)
@@ -108,7 +119,7 @@ int perf_intel_pt_open(int thread_id)
     if (!pe.size)
     {
         /* The same event_attr can be used to setup multiple threads, init just once */
-        intel_pt_perf_event_attr_init();
+        perf_event_attr_init();
     }
 
     perf_fd = perf_event_open(&pe, (pid_t)thread_id, -1, -1, PERF_FLAG_FD_CLOEXEC);
@@ -137,6 +148,18 @@ int perf_intel_pt_open(int thread_id)
     if (perf_aux_buf == MAP_FAILED)
     {
         error_report("IntelPT: Failed to mmap perf aux buffer");
+        goto fail;
+    }
+
+    if (set_ip_filter())
+    {
+        error_report("IntelPT: Failed to set IP filter");
+        goto fail;
+    }
+
+    if(ioctl(perf_fd, PERF_EVENT_IOC_ENABLE, 0))
+    {
+        error_report("IntelPT: Failed to enable perf event");
         goto fail;
     }
 
