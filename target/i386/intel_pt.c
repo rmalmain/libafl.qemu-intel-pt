@@ -50,9 +50,9 @@
 _Static_assert(((PERF_BUFFER_SIZE - PAGE_SIZE) & (PERF_BUFFER_SIZE - PAGE_SIZE - 1)) == 0,
                "PERF_BUFFER_SIZE should be 1+2^n pages");
 #define PERF_AUX_BUFFER_SIZE 64 * 1024 * 1024
-_Static_assert((PERF_AUX_BUFFER_SIZE % PAGE_SIZE) == 0,
+static_assert((PERF_AUX_BUFFER_SIZE % PAGE_SIZE) == 0,
                "PERF_AUX_BUFFER_SIZE must be page aligned");
-_Static_assert((PERF_AUX_BUFFER_SIZE & (PERF_AUX_BUFFER_SIZE - 1)) == 0,
+static_assert((PERF_AUX_BUFFER_SIZE & (PERF_AUX_BUFFER_SIZE - 1)) == 0,
                "PERF_AUX_BUFFER_SIZE must be a power of two");
 
 static struct perf_event_attr pe;
@@ -105,8 +105,9 @@ static void perf_event_attr_init(void)
     pe.config |= PT_CONFIG_NORETCOMP;
 }
 
+// TODO: expose this to libafl
 static int set_ip_filter(void) {
-    const char *argp = "filter 30298/3584"; //0x7600-0x8400
+    const char *argp = "filter 0x7c00/512";
     return ioctl(perf_fd, PERF_EVENT_IOC_SET_FILTER, argp);
 }
 
@@ -171,6 +172,11 @@ fail:
     return ret;
 }
 
+static inline uint64_t wrap_aux_pointer(uint64_t ptr)
+{
+    return  ptr & (PERF_AUX_BUFFER_SIZE - 1);
+}
+
 void perf_intel_pt_log(void)
 {
     if (!pc)
@@ -187,9 +193,8 @@ void perf_intel_pt_log(void)
         return;
     }
 
-    // TODO possible wraparound?
-    uint64_t head = pc->aux_head;
-    uint64_t tail = pc->aux_tail;
+    uint64_t head = wrap_aux_pointer(pc->aux_head);
+    uint64_t tail = wrap_aux_pointer(pc->aux_tail);
     smp_rmb();
 
     fwrite(perf_aux_buf + tail, 1, head - tail, f);
@@ -240,6 +245,3 @@ void perf_intel_pt_close(void)
 //     perror("setrlimit");
 //     return 1;
 // }
-
-// TODO: consider that there are some errata in Intel PT
-// libipt/src/pt_config.c pt_cpu_errata
