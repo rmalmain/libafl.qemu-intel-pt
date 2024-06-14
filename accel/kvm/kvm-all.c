@@ -49,7 +49,9 @@
 #include "sysemu/dirtylimit.h"
 #include "qemu/range.h"
 
+//// --- Begin LibAFL code ---
 #include "target/i386/intel_pt.h"
+//// --- End LibAFL code ---
 
 #include "hw/boards.h"
 #include "sysemu/stats.h"
@@ -2827,8 +2829,6 @@ int kvm_cpu_exec(CPUState *cpu)
     struct kvm_run *run = cpu->kvm_run;
     int ret, run_ret;
 
-    // Marco: maybe this trace thing is the cleanest place to put PT stuff?
-    // investigate what it is
     trace_kvm_cpu_exec();
 
     if (kvm_arch_process_async_events(cpu)) {
@@ -2840,7 +2840,9 @@ int kvm_cpu_exec(CPUState *cpu)
     cpu_exec_start(cpu);
 
     do {
+        //// --- Begin LibAFL code ---
         perf_intel_pt_log();
+        //// --- End LibAFL code ---
         MemTxAttrs attrs;
 
         if (cpu->vcpu_dirty) {
@@ -2992,7 +2994,9 @@ int kvm_cpu_exec(CPUState *cpu)
         }
     } while (ret == 0);
 
+    //// --- Begin LibAFL code ---
     perf_intel_pt_log();
+    //// --- End LibAFL code ---
 
     cpu_exec_end(cpu);
     bql_lock();

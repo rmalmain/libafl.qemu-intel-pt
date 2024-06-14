@@ -19,7 +19,9 @@ i386_system_ss.add(files(
   'machine.c',
   'monitor.c',
   'cpu-sysemu.c',
+  # --- Begin LibAFL code ---
   'intel_pt.c'
+  # --- End LibAFL code ---
 ))
 i386_system_ss.add(when: 'CONFIG_SEV', if_true: files('sev.c'), if_false: files('sev-sysemu-stub.c'))
 

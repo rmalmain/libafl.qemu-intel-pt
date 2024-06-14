@@ -22,7 +22,9 @@
 #include "sysemu/cpus.h"
 #include "qemu/guest-random.h"
 #include "qapi/error.h"
+//// --- Begin LibAFL code ---
 #include "target/i386/intel_pt.h"
+//// --- End LibAFL code ---
 
 #include <linux/kvm.h>
 #include "kvm-cpus.h"
@@ -42,8 +44,9 @@ static void *kvm_vcpu_thread_fn(void *arg)
     r = kvm_init_vcpu(cpu, &error_fatal);
     kvm_init_cpu_signals(cpu);
 
-    // Marco: We can hook here, take the cpu->thread_id and use it to start PT
+    //// --- Begin LibAFL code ---
     perf_intel_pt_open(cpu->thread_id);
+    //// --- End LibAFL code ---
 
     /* signal CPU creation */
     cpu_thread_signal_created(cpu);
@@ -59,8 +62,10 @@ static void *kvm_vcpu_thread_fn(void *arg)
         qemu_wait_io_event(cpu);
     } while (!cpu->unplug || cpu_can_run(cpu));
 
+    //// --- Begin LibAFL code ---
     // Marco: Looks like this doesn't get called on vm shutdown
     perf_intel_pt_close();
+    //// --- End LibAFL code ---
 
     kvm_destroy_vcpu(cpu);
     cpu_thread_signal_destroyed(cpu);
