@@ -1,3 +1,12 @@
+Note about this QEMU fork
+=============
+
+This QEMU fork is a Proof of Concept written by `@Marcondiro <https://github.com/Marcondiro>`_ for the
+GSoC 2024 to have Intel PT tracing working in QEMU. It is not intended
+to be used as-is and is made available for reference. The patch has
+been `ported to LibAFL <https://github.com/AFLplusplus/LibAFL/pull/2471>`_ in Rust and has been designed to be used
+through LibAFL QEMU.
+
 ===========
 QEMU README
 ===========
