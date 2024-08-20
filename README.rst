@@ -1,11 +1,14 @@
 Note about this QEMU fork
 =============
 
-This QEMU fork is a Proof of Concept written by `@Marcondiro <https://github.com/Marcondiro>`_ for the
-GSoC 2024 to have Intel PT tracing working in QEMU. It is not intended
-to be used as-is and is made available for reference. The patch has
-been `ported to LibAFL <https://github.com/AFLplusplus/LibAFL/pull/2471>`_ in Rust and has been designed to be used
-through LibAFL QEMU.
+This QEMU fork is a Proof of Concept written by
+`@Marcondiro <https://github.com/Marcondiro>`_ for the GSoC 2024 to have Intel
+PT tracing a QEMU-KVM VM from the host. It is not intended to be used as-is and
+is made available for reference. The patch has been
+`ported to LibAFL <https://github.com/AFLplusplus/LibAFL/pull/2471>`_ in Rust
+and has been designed to be used through LibAFL QEMU.
+If you want to know more about this project, please refer to this
+`report <https://gist.github.com/7701cc51eeba8ac9ed252b5499fdecaa>`_
 
 ===========
 QEMU README
